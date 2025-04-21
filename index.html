@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Hold This</title>
+		<link rel="stylesheet" href="/src/css/style.css" />
+        <link rel="shortcut icon" href="/vite.svg" type="image/x-icon">
+	</head>
+	<body class="font-figtree min-h-screen bg-gray-100">
+		<div id="particles-js"></div>
+
+		<header class="container mx-auto p-4 flex justify-between items-center z-10 relative bg-white bg-opacity-10 backdrop-blur-lg rounded-lg shadow-md">
+			<h1 class="text-xl font-bold">Hold This</h1>
+			<div class="flex items-center gap-4">
+				<span id="user-display" class="font-medium"></span>
+				<button id="logout-btn" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">Logout</button>
+			</div>
+		</header>
+
+		<main class="relative container mx-auto p-4 flex flex-col md:flex-row gap-8 items-start justify-center min-h-[calc(100vh-80px)]">
+			<section class="card w-full max-w-md flex flex-col items-center gap-6 md:sticky top-0">
+				<h2 class="text-2xl font-bold">Hold This</h2>
+
+				<div class="timer text-4xl font-mono"><span id="hour">00</span>:<span id="minute">00</span>:<span id="second">00</span>.<span id="milisecond">000</span></div>
+
+				<button id="timer-button" class="relative p-4 focus:outline-none">
+					<img src="assets/img/button.png" alt="Button" class="w-48 h-auto" draggable="false" />
+				</button>
+
+				<div class="text-center">
+					<p>Press and hold the button as long as you can!</p>
+					<p>Try to beat your best time!</p>
+				</div>
+			</section>
+
+			<section class="w-full max-w-md">
+				<div class="card mb-8">
+					<h2 class="text-2xl font-bold mb-4">Global Leaderboard</h2>
+					<div class="overflow-x-auto">
+						<table class="w-full">
+							<thead class="border-b border-white/20">
+								<tr>
+									<th class="p-2 text-left">Rank</th>
+									<th class="p-2 text-left">Player</th>
+									<th class="p-2 text-right">Time</th>
+								</tr>
+							</thead>
+							<tbody id="global-leaderboard"></tbody>
+						</table>
+					</div>
+				</div>
+
+				<div class="card">
+					<h2 class="text-2xl font-bold mb-4">Your Records</h2>
+					<div class="overflow-x-auto">
+						<table class="w-full">
+							<thead class="border-b border-white/20">
+								<tr>
+									<th class="p-2 text-left"></th>
+									<th class="p-2 text-right">Time</th>
+								</tr>
+							</thead>
+							<tbody id="personal-leaderboard"></tbody>
+						</table>
+					</div>
+				</div>
+			</section>
+		</main>
+
+		<script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+		<script type="module" src="/src/js/auth.js"></script>
+		<script type="module" src="/src/js/game.js"></script>
+		<script type="module" src="/src/js/leaderboard.js"></script>
+		<script type="module" src="/src/js/particles.js"></script>
+	</body>
+</html>
