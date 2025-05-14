@@ -32,16 +32,13 @@ function checkAlreadyLoggedIn() {
 async function createUserDocument(user, username) {
 	const userRef = doc(db, "users", user.uid)
 	try {
-		const docSnap = await getDoc(userRef)
-		if (!docSnap.exists()) {
-			await setDoc(userRef, {
-				username,
-				email: user.email,
-				records: [],
-				id: user.uid,
-				createdAt: new Date().toISOString(),
-			})
-		}
+		await setDoc(userRef, {
+			username,
+			email: user.email.toLowerCase(), // ensure email is lowercase
+			records: [],
+			id: user.uid,
+			createdAt: new Date().toISOString(),
+		})
 		return true
 	} catch (error) {
 		console.error("Error creating user document:", error)
@@ -51,10 +48,15 @@ async function createUserDocument(user, username) {
 
 // Add this function to check if email exists
 async function isEmailRegistered(email) {
-	const usersRef = collection(db, "users")
-	const q = query(usersRef, where("email", "==", email.toLowerCase()))
-	const querySnapshot = await getDocs(q)
-	return !querySnapshot.empty
+	try {
+		const usersRef = collection(db, "users")
+		const q = query(usersRef, where("email", "==", email.toLowerCase()))
+		const querySnapshot = await getDocs(q)
+		return !querySnapshot.empty
+	} catch (error) {
+		console.error("Error checking email:", error)
+		return false // Allow registration if check fails
+	}
 }
 
 // Add password validation function
@@ -137,12 +139,16 @@ async function loginUser(email, password) {
 				throw new Error("Account not found. Please check your email or register first")
 			case "auth/wrong-password":
 				throw new Error("Incorrect password. Please try again")
+			case "auth/invalid-credential":
+				throw new Error("Invalid email or password. Please check your credentials")
 			case "auth/too-many-requests":
 				throw new Error("Too many failed attempts. Please wait or reset your password")
 			case "auth/network-request-failed":
 				throw new Error("Failed to connect to server. Please check your internet connection")
+			case "auth/user-disabled":
+				throw new Error("This account has been disabled. Please contact support")
 			default:
-				throw new Error("Login failed. Please try again later")
+				throw new Error("Login failed: " + (error.message || "Please try again later"))
 		}
 	}
 }
