@@ -1,3 +1,7 @@
+import { auth, db } from "./firebase.js"
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth"
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
+
 // Auth untuk login, register, dan logout
 
 // fungsi untuk mengecek halaman saat ini
@@ -7,7 +11,7 @@ function isPage(pageName) {
 
 // cek user login atau belum
 function isLoggedIn() {
-	return localStorage.getItem("currentUser") !== null
+	return auth.currentUser !== null
 }
 
 // redirect ke halaman login jika user belum login
@@ -24,69 +28,136 @@ function checkAlreadyLoggedIn() {
 	}
 }
 
-// buat array di localStorage
-function initUsers() {
-	if (!localStorage.getItem("users")) {
-		localStorage.setItem("users", JSON.stringify([]))
+// Add this function after existing imports
+async function createUserDocument(user, username) {
+	const userRef = doc(db, "users", user.uid)
+	try {
+		await setDoc(userRef, {
+			username,
+			email: user.email.toLowerCase(), // ensure email is lowercase
+			records: [],
+			id: user.uid,
+			createdAt: new Date().toISOString(),
+		})
+		return true
+	} catch (error) {
+		console.error("Error creating user document:", error)
+		return false
 	}
 }
 
-// ambil semua user
-function getUsers() {
-	return JSON.parse(localStorage.getItem("users") || "[]")
+// Add this function to check if email exists
+async function isEmailRegistered(email) {
+	try {
+		const usersRef = collection(db, "users")
+		const q = query(usersRef, where("email", "==", email.toLowerCase()))
+		const querySnapshot = await getDocs(q)
+		return !querySnapshot.empty
+	} catch (error) {
+		console.error("Error checking email:", error)
+		return false // Allow registration if check fails
+	}
 }
 
-// cari user berdasarkan email
-function findUserByEmail(email) {
-	const users = getUsers()
-	return users.find((user) => user.email.toLowerCase() === email.toLowerCase())
+// Add password validation function
+function validatePassword(password) {
+	if (password.length < 6) {
+		throw new Error("Password must be at least 6 characters")
+	}
+	if (!/[A-Z]/.test(password)) {
+		throw new Error("Password must contain at least 1 uppercase letter")
+	}
+	if (!/[0-9]/.test(password)) {
+		throw new Error("Password must contain at least 1 number")
+	}
 }
 
 // Register
-function registerUser(username, email, password) {
-	const users = getUsers()
+async function registerUser(username, email, password) {
+	try {
+		if (username.length < 3) {
+			throw new Error("Username must be at least 3 characters")
+		}
 
-	// beri error jika email sudah terdaftar
-	if (findUserByEmail(email)) {
-		throw new Error("Email already in use")
+		validatePassword(password)
+
+		// Check if email already exists
+		if (await isEmailRegistered(email)) {
+			throw new Error("Email is already registered. Please login or use a different email")
+		}
+
+		const userCredential = await createUserWithEmailAndPassword(auth, email, password)
+		const user = userCredential.user
+
+		// Create or verify user document
+		const docCreated = await createUserDocument(user, username)
+		if (!docCreated) {
+			throw new Error("Failed to create user profile. Please try again")
+		}
+
+		return {
+			id: user.uid,
+			username,
+			email,
+			records: [],
+		}
+	} catch (error) {
+		console.error("Register error:", error)
+		switch (error.code) {
+			case "auth/email-already-in-use":
+				throw new Error("Email is already registered. Please login or use a different email")
+			case "auth/invalid-email":
+				throw new Error("Invalid email format. Example: name@email.com")
+			case "auth/weak-password":
+				throw new Error("Password too weak. Must be at least 6 characters with letters and numbers")
+			case "auth/network-request-failed":
+				throw new Error("Failed to connect to server. Please check your internet connection")
+			default:
+				throw error
+		}
 	}
-
-	// Create new user
-	const newUser = {
-		id: Date.now().toString(),
-		username,
-		email,
-		password,
-		records: [],
-	}
-
-	// masukan user ke array localStorage
-	users.push(newUser)
-	localStorage.setItem("users", JSON.stringify(users))
-
-	return newUser
 }
 
 // Login user
-function loginUser(email, password) {
-	const user = findUserByEmail(email)
+async function loginUser(email, password) {
+	try {
+		const userCredential = await signInWithEmailAndPassword(auth, email, password)
+		const user = userCredential.user
 
-	// cek apakah user dan password cocok
-	if (!user || user.password !== password) {
-		throw new Error("Invalid email or password")
+		const userDoc = await getDoc(doc(db, "users", user.uid))
+		if (!userDoc.exists()) {
+			throw new Error("User data not found.")
+		}
+
+		return userDoc.data()
+	} catch (error) {
+		console.error("Login error:", error)
+		switch (error.code) {
+			case "auth/invalid-email":
+				throw new Error("Invalid email format. Example: name@email.com")
+			case "auth/user-not-found":
+				throw new Error("Account not found. Please check your email or register first")
+			case "auth/wrong-password":
+				throw new Error("Incorrect password. Please try again")
+			case "auth/invalid-credential":
+				throw new Error("Invalid email or password. Please check your credentials")
+			case "auth/too-many-requests":
+				throw new Error("Too many failed attempts. Please wait or reset your password")
+			case "auth/network-request-failed":
+				throw new Error("Failed to connect to server. Please check your internet connection")
+			case "auth/user-disabled":
+				throw new Error("This account has been disabled. Please contact support")
+			default:
+				throw new Error("Login failed: " + (error.message || "Please try again later"))
+		}
 	}
-
-	// simpan data user yang sedang login
-	const { password: _, ...userData } = user
-	localStorage.setItem("currentUser", JSON.stringify(userData))
-
-	return userData
 }
 
 // Logout user
 function logoutUser() {
-	localStorage.removeItem("currentUser")
-	window.location.href = "/login.html"
+	signOut(auth).then(() => {
+		window.location.href = "/login.html"
+	})
 }
 
 // Setup register form handler
@@ -96,7 +167,7 @@ function setupRegisterForm() {
 
 	if (!form) return
 
-	form.addEventListener("submit", (e) => {
+	form.addEventListener("submit", async (e) => {
 		e.preventDefault()
 		errorMessage.classList.add("hidden")
 
@@ -107,24 +178,23 @@ function setupRegisterForm() {
 
 		// validasi konfirmasi password
 		if (password !== confirmPassword) {
-			errorMessage.textContent = "Passwords do not match"
+			errorMessage.textContent = "Passwords do not match. Please check again"
 			errorMessage.classList.remove("hidden")
 			return
 		}
 
 		try {
-			registerUser(username, email, password)
+			await registerUser(username, email, password)
 
 			// tampilkan alert
-			Swal.fire({
+			await Swal.fire({
 				icon: "success",
 				title: "Registration Successful",
 				text: "You can now login with your credentials",
 				timer: 2000,
 				showConfirmButton: false,
-			}).then(() => {
-				window.location.href = "/login.html"
 			})
+			window.location.href = "/login.html"
 		} catch (error) {
 			errorMessage.textContent = error.message
 			errorMessage.classList.remove("hidden")
@@ -139,7 +209,7 @@ function setupLoginForm() {
 
 	if (!form) return
 
-	form.addEventListener("submit", (e) => {
+	form.addEventListener("submit", async (e) => {
 		e.preventDefault()
 		errorMessage.classList.add("hidden")
 
@@ -147,18 +217,17 @@ function setupLoginForm() {
 		const password = document.getElementById("password").value
 
 		try {
-            loginUser(email, password)
-            
+			await loginUser(email, password)
+
 			// tampilkan alert
-			Swal.fire({
+			await Swal.fire({
 				icon: "success",
 				title: "Login Successful",
 				text: "You can play the game now",
 				timer: 2000,
 				showConfirmButton: false,
-			}).then(() => {
-				window.location.href = "/login.html"
 			})
+			window.location.href = "/index.html"
 		} catch (error) {
 			errorMessage.textContent = error.message
 			errorMessage.classList.remove("hidden")
@@ -175,25 +244,65 @@ function setupLogout() {
 }
 
 // tampikan username user yang login
-function displayUsername() {
+async function displayUsername() {
 	const userDisplay = document.getElementById("user-display")
-	if (userDisplay) {
-		const currentUser = JSON.parse(localStorage.getItem("currentUser"))
-		if (currentUser) {
-			userDisplay.textContent = currentUser.username
+	if (!userDisplay) return
+
+	try {
+		const currentUser = auth.currentUser
+		if (!currentUser) {
+			console.log("No authenticated user")
+			return
 		}
+
+		// Try multiple times to get user document
+		let attempts = 3
+		while (attempts > 0) {
+			const userRef = doc(db, "users", currentUser.uid)
+			const userDoc = await getDoc(userRef)
+
+			if (userDoc.exists()) {
+				const userData = userDoc.data()
+				userDisplay.textContent = userData.username || currentUser.email
+				return
+			}
+
+			// If document doesn't exist, try to create it
+			await createUserDocument(currentUser, currentUser.email.split("@")[0])
+			attempts--
+
+			// Wait a bit before retrying
+			await new Promise((resolve) => setTimeout(resolve, 1000))
+		}
+
+		// Fallback to email if all attempts fail
+		userDisplay.textContent = currentUser.email
+	} catch (error) {
+		console.error("Error in displayUsername:", error)
+		userDisplay.textContent = auth.currentUser?.email || "User"
 	}
 }
 
-// Initialize
-function init() {
-	initUsers()
+// Add auth state observer
+onAuthStateChanged(auth, async (user) => {
+	console.log("Auth state changed:", user ? user.uid : "No user")
+	if (user) {
+		try {
+			await createUserDocument(user, user.email.split("@")[0])
+			await displayUsername()
+		} catch (error) {
+			console.error("Error in auth state change:", error)
+		}
+	}
 	checkAuth()
 	checkAlreadyLoggedIn()
+})
+
+// Initialize
+function init() {
 	setupRegisterForm()
 	setupLoginForm()
 	setupLogout()
-	displayUsername()
 }
 
 // Run initialization

@@ -1,3 +1,5 @@
+import { auth, db } from "./firebase.js"
+import { doc, updateDoc, arrayUnion, getDoc } from "firebase/firestore"
 import { updateLeaderboards } from "./leaderboard.js"
 
 // init variabel
@@ -79,35 +81,43 @@ function stopTimer() {
 	}
 }
 
-// simpan skor ke localStorage
-function saveScore(score) {
-	// ambil user yang login
-	const currentUser = JSON.parse(localStorage.getItem("currentUser"))
-	if (!currentUser) return
+// simpan skor ke Firestore
+async function saveScore(score) {
+	if (!auth.currentUser) return
 
-	// Get all users
-	const users = JSON.parse(localStorage.getItem("users") || "[]")
-	const userIndex = users.findIndex((user) => user.id === currentUser.id)
+	try {
+		const userRef = doc(db, "users", auth.currentUser.uid)
+		const userDoc = await getDoc(userRef)
 
-	if (userIndex === -1) return
+		if (!userDoc.exists()) {
+			console.error("User document not found")
+			return
+		}
 
-	// Add record to user's records
-	const user = users[userIndex]
-	user.records.push({
-		score,
-		timestamp: Date.now(),
-	})
+		const userData = userDoc.data()
+		const records = userData.records || []
 
-	// Update user in users array
-	users[userIndex] = user
-	localStorage.setItem("users", JSON.stringify(users))
+		// Add new record
+		const newRecord = {
+			score,
+			timestamp: Date.now(),
+		}
 
-	// Update current user in localStorage
-	const { password: _, ...userData } = user
-	localStorage.setItem("currentUser", JSON.stringify(userData))
+		// Update Firestore with the new record
+		await updateDoc(userRef, {
+			records: [...records, newRecord],
+		})
 
-	// Update leaderboards
-	updateLeaderboards()
+		console.log("Score saved successfully:", newRecord)
+		updateLeaderboards()
+	} catch (error) {
+		console.error("Error saving score:", error)
+		Swal.fire({
+			icon: "error",
+			title: "Error",
+			text: "Failed to save your score. Please try again.",
+		})
+	}
 }
 
 // Setup event listeners for the button

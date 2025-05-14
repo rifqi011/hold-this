@@ -1,3 +1,6 @@
+import { db } from "./firebase.js"
+import { collection, query, orderBy, limit, getDocs, doc, getDoc } from "firebase/firestore"
+import { auth } from "./firebase.js"
 import { formatTimeString } from "./game.js"
 
 // DOM elements
@@ -5,37 +8,47 @@ const globalLeaderboard = document.getElementById("global-leaderboard")
 const personalLeaderboard = document.getElementById("personal-leaderboard")
 
 // ambil semua user dengan skor tertinggi mereka saja
-function getTopUserRecords() {
-	const users = JSON.parse(localStorage.getItem("users") || "[]")
-
-	// Array untuk menyimpan skor tertinggi tiap user
-	const topUserRecords = []
-
-	users.forEach((user) => {
-		if (user.records && user.records.length > 0) {
-			// Ambil skor tertinggi dari user
-			const highestRecord = user.records.reduce((highest, current) => (current.score > highest.score ? current : highest), user.records[0])
-
-			topUserRecords.push({
-				userId: user.id,
-				username: user.username,
-				score: highestRecord.score,
-				timestamp: highestRecord.timestamp,
-			})
+async function getTopUserRecords() {
+	try {
+		if (!auth.currentUser) {
+			console.log("No authenticated user")
+			return []
 		}
-	})
 
-	// Urutkan berdasarkan score dari yang tertinggi
-	return topUserRecords.sort((a, b) => b.score - a.score)
+		const users = []
+		const usersRef = collection(db, "users")
+		const querySnapshot = await getDocs(usersRef)
+
+		querySnapshot.forEach((doc) => {
+			const userData = doc.data()
+			if (userData.records && userData.records.length > 0) {
+				const highestRecord = userData.records.reduce((highest, current) => (current.score > highest.score ? current : highest), userData.records[0])
+				users.push({
+					userId: doc.id,
+					username: userData.username,
+					score: highestRecord.score,
+					timestamp: highestRecord.timestamp,
+				})
+			}
+		})
+
+		console.log("Fetched users:", users)
+		return users.sort((a, b) => b.score - a.score)
+	} catch (error) {
+		console.error("Error fetching top records:", error)
+		return []
+	}
 }
 
 // ambil record user yang sedang login
-function getCurrentUserRecords() {
-	const currentUser = JSON.parse(localStorage.getItem("currentUser"))
-	if (!currentUser || !currentUser.records) return []
+async function getCurrentUserRecords() {
+	if (!auth.currentUser) return []
 
-	// urutkan score dari yang tertinggi
-	return [...currentUser.records].sort((a, b) => b.score - a.score)
+	const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid))
+	if (!userDoc.exists()) return []
+
+	const userData = userDoc.data()
+	return [...(userData.records || [])].sort((a, b) => b.score - a.score)
 }
 
 // cek apakah score masuk ke global leaderboard
@@ -45,12 +58,12 @@ function isInGlobalLeaderboard(userId) {
 }
 
 // Update global leaderboard
-function updateGlobalLeaderboard() {
+async function updateGlobalLeaderboard() {
 	if (!globalLeaderboard) return
 
-	const records = getTopUserRecords()
+	const records = await getTopUserRecords()
 	const top10 = records.slice(0, 10)
-	const currentUser = JSON.parse(localStorage.getItem("currentUser"))
+	const currentUser = auth.currentUser
 
 	globalLeaderboard.innerHTML = ""
 
@@ -67,7 +80,7 @@ function updateGlobalLeaderboard() {
 		const row = document.createElement("tr")
 
 		// Jika ini adalah skor user yang sedang login, beri warna ungu
-		if (currentUser && record.userId === currentUser.id) {
+		if (currentUser && record.userId === currentUser.uid) {
 			row.className = "bg-purple-500 bg-opacity-30"
 		} else {
 			row.className = index % 2 === 0 ? "bg-black bg-opacity-10" : ""
@@ -83,10 +96,10 @@ function updateGlobalLeaderboard() {
 }
 
 // Update personal leaderboard
-function updatePersonalLeaderboard() {
+async function updatePersonalLeaderboard() {
 	if (!personalLeaderboard) return
 
-	const records = getCurrentUserRecords()
+	const records = await getCurrentUserRecords()
 	const top10 = records.slice(0, 10)
 
 	personalLeaderboard.innerHTML = ""
@@ -112,15 +125,25 @@ function updatePersonalLeaderboard() {
 }
 
 // Update leaderboards
-function updateLeaderboards() {
-	updateGlobalLeaderboard()
-	updatePersonalLeaderboard()
+async function updateLeaderboards() {
+	try {
+		await Promise.all([updateGlobalLeaderboard(), updatePersonalLeaderboard()])
+	} catch (error) {
+		console.error("Error updating leaderboards:", error)
+	}
 }
 
 // Init leaderboards
-function initLeaderboards() {
+async function initLeaderboards() {
 	if (globalLeaderboard || personalLeaderboard) {
-		updateLeaderboards()
+		// Wait for auth to be ready
+		await new Promise((resolve) => {
+			const unsubscribe = auth.onAuthStateChanged((user) => {
+				unsubscribe()
+				resolve(user)
+			})
+		})
+		await updateLeaderboards()
 	}
 }
 
@@ -128,5 +151,12 @@ function initLeaderboards() {
 if (document.getElementById("global-leaderboard") || document.getElementById("personal-leaderboard")) {
 	initLeaderboards()
 }
+
+// Set up periodic refresh
+setInterval(() => {
+	if (document.getElementById("global-leaderboard") || document.getElementById("personal-leaderboard")) {
+		updateLeaderboards()
+	}
+}, 3000) // Refresh every 3 seconds
 
 export { updateLeaderboards }
