@@ -2,17 +2,11 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function emailExists(email) {
-      return exists(/databases/$(database)/documents/users where email == email);
-    }
-    
     match /users/{userId} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null 
-        && request.auth.uid == userId
-        && !emailExists(request.resource.data.email);
-      allow update: if request.auth != null 
-        && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if false;
     }
   }
 }
