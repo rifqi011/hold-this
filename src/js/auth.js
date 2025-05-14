@@ -28,7 +28,7 @@ function checkAlreadyLoggedIn() {
 	}
 }
 
-// Add this function after existing imports
+// Create user document in Firestore with username
 async function createUserDocument(user, username) {
 	const userRef = doc(db, "users", user.uid)
 	try {
@@ -72,7 +72,7 @@ function validatePassword(password) {
 	}
 }
 
-// Register
+// Register - Modified to NOT auto-login after registration
 async function registerUser(username, email, password) {
 	try {
 		if (username.length < 3) {
@@ -89,11 +89,14 @@ async function registerUser(username, email, password) {
 		const userCredential = await createUserWithEmailAndPassword(auth, email, password)
 		const user = userCredential.user
 
-		// Create or verify user document
+		// Create user document with the provided username
 		const docCreated = await createUserDocument(user, username)
 		if (!docCreated) {
 			throw new Error("Failed to create user profile. Please try again")
 		}
+
+		// Sign out immediately to require manual login
+		await signOut(auth)
 
 		return {
 			id: user.uid,
@@ -190,9 +193,8 @@ function setupRegisterForm() {
 			await Swal.fire({
 				icon: "success",
 				title: "Registration Successful",
-				text: "You can now login with your credentials",
-				timer: 2000,
-				showConfirmButton: false,
+				text: "Please login with your newly created account",
+				showConfirmButton: true,
 			})
 			window.location.href = "/login.html"
 		} catch (error) {
@@ -243,7 +245,7 @@ function setupLogout() {
 	}
 }
 
-// tampikan username user yang login
+// tampikan username user yang login - improved to prioritize saved username
 async function displayUsername() {
 	const userDisplay = document.getElementById("user-display")
 	if (!userDisplay) return
@@ -255,28 +257,18 @@ async function displayUsername() {
 			return
 		}
 
-		// Try multiple times to get user document
-		let attempts = 3
-		while (attempts > 0) {
-			const userRef = doc(db, "users", currentUser.uid)
-			const userDoc = await getDoc(userRef)
+		// Get user document from Firestore
+		const userRef = doc(db, "users", currentUser.uid)
+		const userDoc = await getDoc(userRef)
 
-			if (userDoc.exists()) {
-				const userData = userDoc.data()
-				userDisplay.textContent = userData.username || currentUser.email
-				return
-			}
-
-			// If document doesn't exist, try to create it
-			await createUserDocument(currentUser, currentUser.email.split("@")[0])
-			attempts--
-
-			// Wait a bit before retrying
-			await new Promise((resolve) => setTimeout(resolve, 1000))
+		if (userDoc.exists()) {
+			// Use the username from the document
+			const userData = userDoc.data()
+			userDisplay.textContent = userData.username || currentUser.email
+		} else {
+			// Fallback if user document doesn't exist
+			userDisplay.textContent = currentUser.email
 		}
-
-		// Fallback to email if all attempts fail
-		userDisplay.textContent = currentUser.email
 	} catch (error) {
 		console.error("Error in displayUsername:", error)
 		userDisplay.textContent = auth.currentUser?.email || "User"
@@ -287,12 +279,7 @@ async function displayUsername() {
 onAuthStateChanged(auth, async (user) => {
 	console.log("Auth state changed:", user ? user.uid : "No user")
 	if (user) {
-		try {
-			await createUserDocument(user, user.email.split("@")[0])
-			await displayUsername()
-		} catch (error) {
-			console.error("Error in auth state change:", error)
-		}
+		await displayUsername()
 	}
 	checkAuth()
 	checkAlreadyLoggedIn()
